@@ -1332,7 +1332,7 @@ config SYS_SPI_U_BOOT_OFFS
 	hex "address of u-boot payload in SPI flash"
 	default 0x8000 if ARCH_SUNXI
 	default 0x0
-	depends on SPL_SPI_LOAD || SPL_SPI_SUNXI
+	depends on SPL_SPI_LOAD || SPL_SPI_SUNXI || SPL_SPI_NAND_SUNXI
 	help
 	 Address within SPI-Flash from where the u-boot payload is fetched
 	 from.

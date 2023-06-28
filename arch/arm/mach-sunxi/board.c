@@ -212,9 +212,9 @@ static int suniv_get_boot_source(void)
 		return SUNXI_BOOTED_FROM_SPI;
 	case SUNIV_BOOTED_FROM_MMC1:
 		return SUNXI_BOOTED_FROM_MMC2;
-	/* SPI NAND is not supported yet. */
+	case SUNIV_BOOTED_FROM_FEL:	/* TODO: testing though fel, add this temporarily */
 	case SUNIV_BOOTED_FROM_NAND:
-		return SUNXI_INVALID_BOOT_SOURCE;
+		return SUNXI_BOOTED_FROM_SPI_NAND;
 	}
 	/* If we get here something went wrong try to boot from FEL.*/
 	printf("Unknown boot source from BROM: 0x%x\n", brom_call);
@@ -294,6 +294,8 @@ uint32_t sunxi_get_boot_device(void)
 		return BOOT_DEVICE_MMC2;
 	case SUNXI_BOOTED_FROM_SPI:
 		return BOOT_DEVICE_SPI;
+	case SUNXI_BOOTED_FROM_SPI_NAND:
+		return BOOT_DEVICE_NAND;
 	}
 
 	panic("Unknown boot source %d\n", boot_source);

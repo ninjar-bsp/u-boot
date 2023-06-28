@@ -12,6 +12,8 @@
 #undef CONFIG_BOOTCOMMAND
 #endif
 
-#define CONFIG_BOOTCOMMAND "bootz 0x80008000 0x80D00000 0x80C00000"
+#define CONFIG_BOOTCOMMAND 	"mtd read spi-nand0 0x80C00000 0x100000 0x4000; " \
+				"mtd read spi-nand0 0x80008000 0x110000 0x400000; " \
+				"bootz 0x80008000 - 0x80C00000"
 
 #endif /* __CONFIG_H */
