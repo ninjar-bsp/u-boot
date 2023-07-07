@@ -556,7 +556,7 @@ static int spi0_nand_read_data(struct sunxi_spi *spi, void *buf, u32 addr, u32 l
     return 0;
 }
 
-static int spl_spi_load_image(struct spl_image_info *spl_image,
+static int spl_spi_nand_load_image(struct spl_image_info *spl_image,
                               struct spl_boot_device *bootdev)
 {
     int ret = 0;
@@ -591,4 +591,4 @@ static int spl_spi_load_image(struct spl_image_info *spl_image,
 }
 
 /* Use priorty 0 to override the default if it happens to be linked in */
-SPL_LOAD_IMAGE_METHOD("sunxi SPI-NAND", 0, BOOT_DEVICE_NAND, spl_spi_load_image);
+SPL_LOAD_IMAGE_METHOD("sunxi SPI-NAND", 0, BOOT_DEVICE_NAND, spl_spi_nand_load_image);
