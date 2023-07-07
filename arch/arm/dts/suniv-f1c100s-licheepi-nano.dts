@@ -42,6 +42,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_pc_pins>;
 	status = "okay";
+    spi-max-frequency = <50000000>;
 
     spi-nand@0 {
         #address-cells = <1>;
