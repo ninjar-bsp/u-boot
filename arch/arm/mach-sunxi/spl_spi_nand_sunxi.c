@@ -117,6 +117,7 @@ struct spi_nand_device {
     unsigned page;
 
     size_t page_size;
+    size_t page_count;
     size_t block_size;
 };
 
@@ -456,19 +457,30 @@ spi_nand_write_status_reg(struct sunxi_spi *spi, u8 reg_addr, u8 reg_val)
 
 static inline int spi_nand_init(struct sunxi_spi *spi)
 {
-    puts("loading payload from SPI NAND ...\n");
-
     u32 id = spi_nand_read_id(spi);
-    printf("detected JEDEC ID : 0x%08x\n", id);
+    printf("Detected JEDEC ID : 0x%08x\n", id);
 
     if (id == 0x00efaa21) {
         spi->nand_dev.name = "w25n01g";
-        spi->nand_dev.page_size = (1 << 11);    /* 2048 */
+        spi->nand_dev.page_size  = (1 << 11);    /* 2048 */
+        spi->nand_dev.page_count = (65536);
         spi->nand_dev.block_size = (1 << 17);   /* 128KB */
-    } else {
+    
+    }  else if (id == 0x00efaa22) {
+        spi->nand_dev.name = "w25n02kv";
+        spi->nand_dev.page_size  = (1 << 11);    /* 2048 */
+        spi->nand_dev.page_count = (131072);
+        spi->nand_dev.block_size = (1 << 17);   /* 128KB */
+    }
+    else {
         puts("###### NAND Device Not supported yet! #####\n");
         hang();
     }
+
+    /* show the chip info */
+    printf("Found `%s`, page size: %d Byte, total size : %d MB",
+        spi->nand_dev.name, spi->nand_dev.page_size, 
+        (spi->nand_dev.page_size * spi->nand_dev.page_count) >> 20);
 
     /* in the beginning, there's no page was loaded into cache */
     spi->nand_dev.page = -1;
