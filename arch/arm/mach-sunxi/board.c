@@ -212,7 +212,7 @@ static int suniv_get_boot_source(void)
 		return SUNXI_BOOTED_FROM_SPI;
 	case SUNIV_BOOTED_FROM_MMC1:
 		return SUNXI_BOOTED_FROM_MMC2;
-	case SUNIV_BOOTED_FROM_FEL:	/* TODO: testing though fel, add this temporarily */
+	//case SUNIV_BOOTED_FROM_FEL:	/* TODO: testing though fel, add this temporarily */
 	case SUNIV_BOOTED_FROM_NAND:
 		return SUNXI_BOOTED_FROM_SPI_NAND;
 	}
