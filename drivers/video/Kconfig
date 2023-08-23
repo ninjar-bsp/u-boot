@@ -509,6 +509,16 @@ config VIDEO_LCD_RENESAS_R69328
 	  IPS-LCD module with Renesas R69328 IC. The panel has a 720x1280
 	  resolution and uses 24 bit RGB per pixel.
 
+config VIDEO_LCD_ST7567
+	bool "ST7567 Display driver"
+	---help---
+    Nothing
+
+config VIDEO_LCD_SSD1327
+	bool "SSD1327 Display driver"
+	---help---
+    Nothing
+
 config VIDEO_LCD_SSD2828
 	bool "SSD2828 bridge chip"
 	---help---
