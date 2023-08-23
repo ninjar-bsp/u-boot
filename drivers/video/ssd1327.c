@@ -188,7 +188,7 @@ static int request_gpios(struct ssd1327_par *par)
     ret = request_one_gpio(par, "dc-gpios", 0, &par->gpio.dc);
     if (ret)
         return ret;
-
+        
     return 0;
 }
 
@@ -408,12 +408,20 @@ static int ssd1327_hw_init(struct ssd1327_par *par)
     int ret;
     printk("%s\n", __func__);
     
+    ret = dm_spi_claim_bus(par->dev);
+    if (ret) {
+        dev_err(par->dev, "failed to claim spi bus : %d", ret);
+        return ret;
+    }
+    
     par->tftops->reset(par);
     par->tftops->init_display(par);
     // par->tftops->set_var(par);
     // par->tftops->clear(par);
-
-    ssd1327_show_img(par, gImage_1in5);
+    
+    // ssd1327_show_img(par, gImage_1in5);
+    
+    dm_spi_release_bus(par->dev);
     
     return 0;
 }
@@ -440,8 +448,79 @@ static const struct ssd1327_display default_ssd1327_display = {
     .rotate = 0,
 };
 
+#define RED(a)      ((((a) & 0xf800) >> 11) << 3)
+#define GREEN(a)    ((((a) & 0x07e0) >> 5) << 2)
+#define BLUE(a)     (((a) & 0x001f) << 3)
+static inline u8 rgb565_to_4bit_grayscale(u16 rgb565)
+{
+    int r, g, b;
+    u16 gray;
+    
+    /* get each channel and expand them to 8 bit */
+    r = RED(rgb565);
+    g = GREEN(rgb565);
+    b = BLUE(rgb565);
+    
+    /* convert rgb888 to grayscale */
+    gray = ((r * 77 + g * 151 + b * 28) >> 8); // 0 ~ 255
+    if (gray == 0)
+        return gray;
+        
+    /* to 4-bit grayscale */
+    // gray = (gray * 15 / 255) & 0x0f;
+    /*
+     * so 4-bit grayscale like:
+     * B3  B2  B1  B0
+     * 0   0   0   0
+     * which means have 16 kind of gray
+     */
+    gray /= 16;
+    
+    return gray;
+}
+
 static int ssd1327_video_sync(struct udevice *vid)
 {
+    struct video_priv *uc_priv = dev_get_uclass_priv(vid);
+    struct ssd1327_par *par = dev_get_priv(vid);
+
+    int i, j, ret;
+    u8 p0, p1;
+    size_t remain;
+    size_t to_copy;
+    size_t tx_array_size;
+    u8 *txbuf8 = par->txbuf.buf;
+    u16 *vmem16 = uc_priv->fb;
+
+    ret = dm_spi_claim_bus(par->dev);
+    if (ret) {
+        dev_err(par->dev, "failed to claim spi bus : %d", ret);
+        return ret;
+    }
+    
+    par->tftops->set_addr_win(par, 0, 0,
+                              par->display->xres - 1,
+                              par->display->yres - 1);
+
+    printk("uc_priv->xsize : %d, uc_priv->ysize : %d\n", uc_priv->xsize, uc_priv->ysize);
+    for (i = 0, j = 0; i < (uc_priv->xsize * uc_priv->ysize); i += 2, j++) {
+        p0 = rgb565_to_4bit_grayscale(vmem16[i+1]);
+        p1 = rgb565_to_4bit_grayscale(vmem16[i]);
+        txbuf8[j] = p0 << 4 | p1;
+    }
+    
+    remain = j;
+    tx_array_size = par->txbuf.len;
+    while (remain) {
+        printk("%s, remain : %d\n", __func__, remain);
+        to_copy = min(tx_array_size, remain);
+        write_buf_dc(par, txbuf8, to_copy, 1);
+        txbuf8 += to_copy;
+        remain -= to_copy;
+    }
+    
+    dm_spi_release_bus(par->dev);
+    
     return 0;
 }
 
@@ -452,9 +531,7 @@ static int ssd1327_probe(struct udevice *dev)
     
     struct spi_slave *slave = dev_get_parent_priv(dev);
     struct ssd1327_par *par = dev_get_priv(dev);
-    u32 fb_start, fb_end;
     u32 buswidth;
-    int ret;
     
     printk("%s() plat: base 0x%lx, size 0x%x\n",
            __func__, plat->base, plat->size);
@@ -466,28 +543,14 @@ static int ssd1327_probe(struct udevice *dev)
     }
     
     par->spi = slave;
+    
     par->buf = (u8 *)malloc(PAGE_SIZE);
     
-    ret = dm_spi_claim_bus(dev);
-    // ret = spi_claim_bus(par->spi);
-    if (ret) {
-        dev_err(dev, "failed to claim spi bus : %d", ret);
-        return ret;
-    }
+    par->txbuf.buf = (u8 *)malloc(PAGE_SIZE);
+    par->txbuf.len = PAGE_SIZE;
     
     par->display = &default_ssd1327_display;
     par->tftops = &default_ssd1327_ops;
-    
-    switch (par->display->bpp) {
-    case 32:
-    case 24:
-    case 16:
-    case 8:
-        dev_err(par->dev, "Invaild bpp specified (bpp = %i)", par->display->bpp);
-        break;
-    case 1:
-        break;
-    }
     
     par->dev = dev;
     ssd1327_of_config(par);
@@ -497,15 +560,18 @@ static int ssd1327_probe(struct udevice *dev)
     uc_priv->ysize = par->display->yres;
     uc_priv->rot = 0;
     
-    fb_start = plat->base;
-    fb_end = plat->base + plat->size;
-    
     ssd1327_hw_init(par);
     
-    dm_spi_release_bus(par->dev);
-    // spi_release_bus(par->spi);
+    return 0;
+}
+
+static int ssd1327_bind(struct udevice *dev)
+{
+    struct video_uc_plat *plat = dev_get_uclass_plat(dev);
+    struct ssd1327_par *par = dev_get_priv(dev);
     
-    gd->fb_base = plat->base;
+    plat->size = par->display->xres * par->display->yres * 16;
+    
     return 0;
 }
 
@@ -517,16 +583,18 @@ static const struct udevice_id ssd1327_ids[] = {
     { .compatible = "solomon,ssd1327" },
     { }
 };
-            // spi1_pa_pins: spi1-pa-pins {
-            //     pins = "PA0", "PA1", "PA2", "PA3";
-            //     function = "spi1";
-            // };
+// spi1_pa_pins: spi1-pa-pins {
+//     pins = "PA0", "PA1", "PA2", "PA3";
+//     function = "spi1";
+// };
 U_BOOT_DRIVER(ssd1327) = {
-    .name = DRV_NAME"_video",
+    .name = DRV_NAME "_video",
     .id = UCLASS_VIDEO,
-    // .ops = &ssd1327_ops,
+    .ops = &ssd1327_ops,
+    .bind = ssd1327_bind,
     .of_match = ssd1327_ids,
     .of_to_plat = ssd1327_ofdata_to_platdata,
+    .plat_auto = sizeof(struct video_uc_plat),
     .probe = ssd1327_probe,
     .priv_auto = sizeof(struct ssd1327_par),
 };
