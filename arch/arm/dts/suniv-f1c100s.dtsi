@@ -198,6 +198,11 @@
 				function = "i2c0";
 			};
 
+			i2s0_pd_pins: i2s0-pd-pins {
+				pins = "PD7", "PD8", "PD9", "PD10", "PD11";
+				function = "i2s";
+			};
+
 			spi0_pc_pins: spi0-pc-pins {
 				pins = "PC0", "PC1", "PC2", "PC3";
 				function = "spi0";
@@ -288,6 +293,16 @@
 			clock-names = "apb", "ir";
 			resets = <&ccu RST_BUS_IR>;
 			interrupts = <6>;
+			status = "disabled";
+		};
+
+		i2s0: i2s@1C22000 {
+			#sound-dai-cells = <0>;
+			compatible = "allwinner,suniv-f1c100s-i2s";
+			reg = <0x01c22000 0x400>;
+			clocks = <&ccu CLK_BUS_I2S0>, <&ccu CLK_I2S>;
+			resets = <&ccu RST_BUS_I2S0>;
+			interrupts = <35>;
 			status = "disabled";
 		};
 
