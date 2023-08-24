@@ -18,6 +18,7 @@ static struct ccu_clk_gate f1c100s_gates[] = {
 	[CLK_BUS_SPI1]		= GATE(0x060, BIT(21)),
 	[CLK_BUS_OTG]		= GATE(0x060, BIT(24)),
 
+	[CLK_BUS_I2S0]		= GATE(0x068, BIT(12)),
 	[CLK_BUS_I2C0]		= GATE(0x068, BIT(16)),
 	[CLK_BUS_I2C1]		= GATE(0x068, BIT(17)),
 	[CLK_BUS_I2C2]		= GATE(0x068, BIT(18)),
@@ -27,6 +28,7 @@ static struct ccu_clk_gate f1c100s_gates[] = {
 	[CLK_BUS_UART1]		= GATE(0x06c, BIT(21)),
 	[CLK_BUS_UART2]		= GATE(0x06c, BIT(22)),
 
+	[CLK_I2S]               = GATE(0x0b0, BIT(31)),
 	[CLK_USB_PHY0]          = GATE(0x0cc, BIT(1)),
 };
 
@@ -39,6 +41,7 @@ static struct ccu_reset f1c100s_resets[] = {
 	[RST_BUS_SPI1]		= RESET(0x2c0, BIT(21)),
 	[RST_BUS_OTG]		= RESET(0x2c0, BIT(24)),
 
+	[RST_BUS_I2S0]		= RESET(0x2d0, BIT(12)),
 	[RST_BUS_I2C0]		= RESET(0x2d0, BIT(16)),
 	[RST_BUS_I2C1]		= RESET(0x2d0, BIT(17)),
 	[RST_BUS_I2C2]		= RESET(0x2d0, BIT(18)),
