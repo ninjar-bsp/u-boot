@@ -21,6 +21,12 @@ config I2S
 	  I2S. It calls either of the two supported codecs (no use is made
 	  of driver model at present).
 
+config I2S_SUNIV
+	bool "Enable I2S support for Allwinner suniv SoCs"
+	depends on I2S
+	help
+	  Allwinner suniv SoCs support an I2S interface.
+
 config I2S_ROCKCHIP
 	bool "Enable I2S support for Rockchip SoCs"
 	depends on I2S

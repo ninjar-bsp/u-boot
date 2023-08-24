@@ -12,6 +12,7 @@ obj-$(CONFIG_I2S_SAMSUNG)	+= samsung-i2s.o
 obj-$(CONFIG_SOUND_SANDBOX)	+= sandbox.o
 obj-$(CONFIG_I2S_ROCKCHIP)	+= rockchip_i2s.o rockchip_sound.o
 obj-$(CONFIG_I2S_SAMSUNG)	+= samsung_sound.o
+obj-$(CONFIG_I2S_SUNIV)	+= suniv_i2s.o suniv_sound.o
 obj-$(CONFIG_I2S_TEGRA)		+= tegra_ahub.o tegra_i2s.o tegra_sound.o
 obj-$(CONFIG_SOUND_WM8994)	+= wm8994.o
 obj-$(CONFIG_SOUND_MAX98088)	+= max98088.o maxim_codec.o
