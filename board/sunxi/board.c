@@ -866,7 +866,8 @@ int board_late_init(void)
 #ifdef CONFIG_USB_ETHER
 	usb_ether_init();
 #endif
-
+	struct udevice *dev;
+	uclass_get_device(UCLASS_I2S, 0, &dev);
 	return 0;
 }
 
