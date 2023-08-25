@@ -15,13 +15,15 @@
 #include <asm/io.h>
 #include <linux/bitops.h>
 
-#include "testwav.h"
+// #include "piano.wav.h"
+#include "test.wav.h"
 
 #define PLL_AUDIO_CTRL_REG    (0x01c20000 + 0x008)
 #define PLL_AUDIO_EN    BIT(31)
 
 /* Suniv I2S Ctrl register bits */
 #define I2S_CTRL_SDO_EN       BIT(8)
+#define I2S_CTRL_ASS          BIT(6)
 #define I2S_CTRL_PCM_SELECT   BIT(4)
 #define I2S_CTRL_TX_EN        BIT(2)
 #define I2S_CTRL_RX_EN        BIT(1)
@@ -29,6 +31,10 @@
 
 #define I2S_EN (I2S_CTRL_SDO_EN | I2S_CTRL_TX_EN | \
                 I2S_CTRL_G_EN)
+
+#define I2S_FIFO_DEPTH      128
+#define I2S_TXFIFO_FLUSH    BIT(25)
+#define I2S_RXFIFO_FLUSH    BIT(24)
 
 /* Digital Audio Clock Divide Register */
 #define I2S_MCLKO_EN        BIT(7)
@@ -179,12 +185,10 @@ static int suniv_i2s_test(struct i2s_uc_priv *priv)
     // u32 chn = priv->channels;
     u32 mode = 0;
     
-    setbits_le32(&regs->ctrl, I2S_EN);
-    suniv_i2s_reg_dump(&regs->ctrl);
-    
     /* set DA to I2S mode */
     clrbits_le32(&regs->ctrl, I2S_CTRL_PCM_SELECT);
-    
+    suniv_i2s_reg_dump(&regs->ctrl);
+
     switch (bps) {
     case 16:
         mode = I2S_SR_16BIT;
@@ -198,15 +202,20 @@ static int suniv_i2s_test(struct i2s_uc_priv *priv)
     default:
         log_err("Invalid sample size input %d\n", priv->bitspersample);
     }
-    setbits_le32(&regs->fat0, (mode << I2S_SR_SHIFT));
     clrbits_le32(&regs->fat0, ~((I2S_WSS_16BCLK) << I2S_WSS_SHIFT));
+    setbits_le32(&regs->fat0, (mode << I2S_SR_SHIFT));
     suniv_i2s_reg_dump(&regs->fat0);
     
     clrbits_le32(&regs->clkd, ~I2S_MCLK_DIV_MASK);
     setbits_le32(&regs->clkd, (0x4) << I2S_MCLK_DIV_SHIFT);
     setbits_le32(&regs->clkd, I2S_MCLKO_EN);
     suniv_i2s_reg_dump(&regs->clkd);
-    
+
+    writel(0, &regs->txcnt);
+    writel(0, &regs->rxcnt);
+    setbits_le32(&regs->fctl, I2S_TXFIFO_FLUSH);
+    setbits_le32(&regs->fctl, I2S_RXFIFO_FLUSH);
+
     /*
      * PD7  : MCLK
      * PD8  : BCLK
@@ -214,24 +223,44 @@ static int suniv_i2s_test(struct i2s_uc_priv *priv)
      * PD10 : SDI
      * PD11 : SDO0
      */
-    
-    suniv_i2s_reg_dump(&regs->fsta);
+
     int i;
-    unsigned char test_bytes[] = {
-        0x52, 0x49, 0x46, 0x46, 0xb0, 0xe6, 0x01, 0x00, 0x57, 0x41, 0x56, 0x45,
-        0x66, 0x6d, 0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00,
-        0x44, 0xac, 0x00, 0x00, 0x10, 0xb1, 0x02, 0x00,
-    };
-    for (i = 0; i < sizeof(test_bytes); i++) {
-        writel(test_bytes[i], &regs->txfifo);
+    size_t to_send, tx_array_size = I2S_FIFO_DEPTH;
+    size_t remain = sizeof(test_wav);
+    u8 const *txbuf8 = test_wav;
+    
+    // txbuf8 += 46;
+    // remain -= 46;
+
+    setbits_le32(&regs->ctrl, I2S_EN);
+    suniv_i2s_reg_dump(&regs->ctrl);
+    writel(0, &regs->intc);
+    setbits_le32(&regs->intc, BIT(4));
+    printk("%s start.\n", __func__);
+    while (remain) {
+        to_send = min(tx_array_size, remain);
+
+        // suniv_i2s_reg_dump(&regs->fsta);
+        for (i = 0; i < to_send; i++) {
+            writeb(txbuf8[i], &regs->txfifo);
+        }
+
+        // printk("a 0x%02x\n", readl(&regs->ista));
+        /* wait for fifo empty */
+        while(!(readl(&regs->ista) & BIT(4)));
+        //     printk(".");
+        // printk("\n");
+        // printk("b 0x%02x\n", readl(&regs->ista));
+        setbits_le16(&regs->ista, BIT(4));
+
+        // suniv_i2s_reg_dump(&regs->fsta);
+
+        txbuf8 += to_send;
+        remain -= to_send;
     }
-    suniv_i2s_reg_dump(&regs->fsta);
-    
-    setbits_le32(&regs->fctl, BIT(25));
-    suniv_i2s_reg_dump(&regs->txcnt);
-    
-    suniv_i2s_reg_dump(&regs->fsta);
-    
+
+    printk("%s done.\n", __func__);
+    clrbits_le32(&regs->ctrl, I2S_EN);
     return 0;
 }
 
