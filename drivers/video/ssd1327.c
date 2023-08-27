@@ -73,12 +73,7 @@ struct ssd1327_display {
     u32                     xres;
     u32                     yres;
     u32                     bpp;
-    u32                     fps;
     u32                     rotate;
-    u32                     xs_off;
-    u32                     xe_off;
-    u32                     ys_off;
-    u32                     ye_off;
 };
 
 struct ssd1327_priv {
@@ -103,15 +98,6 @@ struct ssd1327_priv {
 
     u8              contrast;
 };
-
-static int ssd1327_ofdata_to_platdata(struct udevice *dev)
-{
-    struct ssd1327_priv *priv = dev_get_priv(dev);
-    
-    priv->spi = dev_get_parent_priv(dev);
-    
-    return 0;
-}
 
 static int ssd1327_spi_write(struct ssd1327_priv *priv, void *buf, size_t len)
 {
@@ -427,7 +413,6 @@ static struct ssd1327_display default_ssd1327_display = {
     .xres   = 128,
     .yres   = 128,
     .bpp    = 16,
-    .fps    = 60,
     .rotate = 0,
 };
 
@@ -435,18 +420,15 @@ static int ssd1327_probe(struct udevice *dev)
 {
     struct video_uc_plat *plat = dev_get_uclass_plat(dev);
     struct video_priv *uc_priv = dev_get_uclass_priv(dev);
-    
-    struct spi_slave *slave = dev_get_parent_priv(dev);
+
     struct ssd1327_priv *priv = dev_get_priv(dev);
     
     pr_debug("%s() plat: base 0x%lx, size 0x%x\n",
              __func__, plat->base, plat->size);
 
     priv->dev = dev;             
-    priv->spi = slave;
     
     priv->buf = (u8 *)malloc(1 << 10);
-    
     priv->txbuf.buf = (u8 *)malloc(PAGE_SIZE);
     priv->txbuf.len = PAGE_SIZE;
     
@@ -460,6 +442,15 @@ static int ssd1327_probe(struct udevice *dev)
     uc_priv->rot = priv->display->rotate;
     
     ssd1327_hw_init(priv);
+    
+    return 0;
+}
+
+static int ssd1327_ofdata_to_platdata(struct udevice *dev)
+{
+    struct ssd1327_priv *priv = dev_get_priv(dev);
+    
+    priv->spi = dev_get_parent_priv(dev);
     
     return 0;
 }
