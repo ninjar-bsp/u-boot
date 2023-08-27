@@ -509,11 +509,6 @@ config VIDEO_LCD_RENESAS_R69328
 	  IPS-LCD module with Renesas R69328 IC. The panel has a 720x1280
 	  resolution and uses 24 bit RGB per pixel.
 
-config VIDEO_LCD_SSD1327
-	bool "SSD1327 Display driver"
-	---help---
-    Nothing
-
 config VIDEO_LCD_SSD2828
 	bool "SSD2828 bridge chip"
 	---help---
@@ -743,6 +738,14 @@ config VIDEO_SEPS525
 	depends on DM_GPIO
 	help
 	  Enable support for the Syncoam PM-OLED display driver (RGB 160x128).
+	  Currently driver is supporting only SPI interface.
+
+config VIDEO_SSD1327
+	bool "Enable video support for SSD1327"
+	depends on DM_GPIO
+	---help---
+      Enable support for SSD1327 based OLED display with 16 grayscale color.
+	  (in spi mode) This driver supports convert from rgb565 etc.
 	  Currently driver is supporting only SPI interface.
 
 config VIDEO_ZYNQMP_DPSUB

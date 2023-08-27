@@ -1,0 +1,28 @@
+spi based ssd1327 framebuffer display driver
+
+Driver for ssd1327 display controller (in spi mode), This binding supports selection
+of spi chipselect, spi max frequency, gpio to drive dc and reset pin of ssd1327
+controller and spi transaction bit length.
+
+Required properties:
+- compatible: "solomon,ssd1327"
+- reg: Specifies the chip-select the ssd1327 is connected to on the spi bus
+- reset-gpios: gpio connected to reset pin of ssd1327 controller.
+- dc-gpios: gpio connected to dc pin of ssd1327 controller:
+- buswidth: bitlength of each spi transaction
+- bpp: bits per pixel, 16 bpp supported only for now.
+- rotate: rotation control. 90, 180, 270 etc.
+
+Example:
+	ssd1327@0 {
+		compatible = "solomon,ssd1327";
+		reg = <0>;
+		spi-max-frequency = <12000000>;
+		spi-cpol;
+		spi-cpha;
+		buswidth = <8>;
+        bpp = <16>;
+        rotate = <0>;
+		reset-gpios = <&gpio 0x1c GPIO_ACTIVE_LOW>;
+		dc-gpios = <&gpio 0x1b GPIO_ACTIVE_HIGH>;
+	};

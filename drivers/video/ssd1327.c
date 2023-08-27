@@ -4,58 +4,57 @@
  */
 
 /*
- * Support for the SSD1327, which can operate behavior though
- * SPI interface for driving a TFT display.
+ * support for SSD1327 based OLED display with 16 grayscale color.
+ * (in spi mode) This driver supports convert from rgb565 etc.
  */
 
 #define pr_fmt(fmt) "ssd1327: " fmt
 
 #include <common.h>
-#include <clk.h>
 #include <dm.h>
 #include <env.h>
 #include <log.h>
+#include <spi.h>
+#include <video.h>
+#include <malloc.h>
+
+#include <asm/gpio.h>
 #include <asm/cache.h>
+#include <asm/arch/gpio.h>
+
+#include <linux/delay.h>
+#include <linux/errno.h>
+#include <linux/bitops.h>
+
 #include <dm/devres.h>
 #include <dm/device_compat.h>
-#include <linux/delay.h>
-#include <linux/bitops.h>
-#include <linux/errno.h>
-#include <malloc.h>
-#include <video.h>
-
-#include <spi.h>
-#include <spi-mem.h>
-#include <asm/gpio.h>
-#include <mipi_display.h>
-#include <asm/arch/gpio.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
 /*
  * SSD1327 Command Table
  */
-#define SSD1327_CMD_SET_COL_ADDR        0x15
-#define SSD1327_CMD_SET_ROW_ADDR        0x75
-#define SSD1327_CMD_SET_CONTRAST        0x81
+#define SSD1327_CMD_SET_COL_ADDR                    0x15
+#define SSD1327_CMD_SET_ROW_ADDR                    0x75
+#define SSD1327_CMD_SET_CONTRAST                    0x81
 
 /* 0x84 ~ 0x86 are no operation commands */
 
-#define SSD1327_CMD_SET_REMAP                   0xA0
-#define SSD1327_CMD_SET_DISPLAY_START_LINE      0xA1
-#define SSD1327_CMD_SET_DISPLAY_OFFSET          0xA2
+#define SSD1327_CMD_SET_REMAP                       0xA0
+#define SSD1327_CMD_SET_DISPLAY_START_LINE          0xA1
+#define SSD1327_CMD_SET_DISPLAY_OFFSET              0xA2
 
 /* SSD1327 Display mode setting */
-#define SSD1327_CMD_SET_DISPLAY_MODE_NORMAL          0xA4
-#define SSD1327_CMD_SET_DISPLAY_MODE_ON              0xA5    /* All pixel at grayscale level GS15 */
-#define SSD1327_CMD_SET_DISPLAY_MODE_OFF             0xA6    /* All pixel at grayscale level GS0 */
-#define SSD1327_CMD_SET_DISPLAY_MODE_INVERSE         0xA7
+#define SSD1327_CMD_SET_DISPLAY_MODE_NORMAL         0xA4
+#define SSD1327_CMD_SET_DISPLAY_MODE_ON             0xA5    /* All pixel at grayscale level GS15 */
+#define SSD1327_CMD_SET_DISPLAY_MODE_OFF            0xA6    /* All pixel at grayscale level GS0 */
+#define SSD1327_CMD_SET_DISPLAY_MODE_INVERSE        0xA7
 
-#define SSD1327_CMD_SET_MULTIPLEX_RATIO         0xA8
-#define SSD1327_CMD_FUNCTION_SELETION_A         0xAB
+#define SSD1327_CMD_SET_MULTIPLEX_RATIO             0xA8
+#define SSD1327_CMD_FUNCTION_SELETION_A             0xAB
 
-#define SSD1327_CMD_SET_DISPLAY_ON               0xAE
-#define SSD1327_CMD_SET_DISPLAY_OFF              0xAF
+#define SSD1327_CMD_SET_DISPLAY_ON                  0xAE
+#define SSD1327_CMD_SET_DISPLAY_OFF                 0xAF
 
 #define SSD1327_CMD_SET_PHASE_LENGTH                0xB1
 #define SSD1327_CMD_NOP                             0xB2
@@ -66,24 +65,9 @@ DECLARE_GLOBAL_DATA_PTR;
 #define SSD1327_CMD_SEL_DEF_LINEAR_GC_TABLE         0xB9
 
 /* SSD1327 Default settings */
-#define SSD1327_DEF_GAMMA_LEVEL         32
+#define SSD1327_DEF_CONTRAST_LEVEL         32
 
 #define DRV_NAME "ssd1327"
-
-struct ssd1327_priv;
-
-struct ssd1327_operations {
-    int (*init_display)(struct ssd1327_priv *priv);
-    int (*reset)(struct ssd1327_priv *priv);
-    int (*clear)(struct ssd1327_priv *priv, int clear);
-    int (*idle)(struct ssd1327_priv *priv, bool on);
-    int (*blank)(struct ssd1327_priv *priv, bool on);
-    int (*sleep)(struct ssd1327_priv *priv, bool on);
-    int (*set_var)(struct ssd1327_priv *priv);
-    int (*set_gamma)(struct ssd1327_priv *priv, u8 gamma);
-    int (*set_cursor)(struct ssd1327_priv *priv, int x, int y);
-    int (*set_addr_win)(struct ssd1327_priv *priv, int xs, int ys, int xe, int ye);
-};
 
 struct ssd1327_display {
     u32                     xres;
@@ -101,10 +85,12 @@ struct ssd1327_priv {
     struct udevice          *dev;
     struct spi_slave        *spi;
     u8                      *buf;
+
     struct {
         void *buf;
         size_t len;
     } txbuf;
+
     struct {
         struct gpio_desc *reset;
         struct gpio_desc *dc;
@@ -113,12 +99,8 @@ struct ssd1327_priv {
     } gpio;
     
     /* device specific */
-    const struct ssd1327_operations        *tftops;
-    
     struct ssd1327_display           *display;
-    
-    u32             dirty_lines_start;
-    u32             dirty_lines_end;
+
     u8              contrast;
 };
 
@@ -159,7 +141,6 @@ static int request_one_gpio(struct ssd1327_priv *priv,
 {
     struct udevice *dev = priv->dev;
     int ret;
-    pr_debug("requesting gpio : %s\n", name);
     
     ret = gpio_request_by_name(priv->dev, name, 0, *gpiop, GPIOD_IS_OUT);
     if (ret) {
@@ -170,11 +151,10 @@ static int request_one_gpio(struct ssd1327_priv *priv,
     return 0;
 }
 
-static int request_gpios(struct ssd1327_priv *priv)
+static int ssd1327_request_gpios(struct ssd1327_priv *priv)
 {
     int ret;
-    pr_debug("%s\n", __func__);
-    
+
     ret = request_one_gpio(priv, "reset-gpios", 0, &priv->gpio.reset);
     if (ret)
         return ret;
@@ -184,14 +164,6 @@ static int request_gpios(struct ssd1327_priv *priv)
         
     return 0;
 }
-
-static inline int ssd1327_write_byte(struct ssd1327_priv *priv, u8 byte, int dc)
-{
-    return write_buf_dc(priv, &byte, 1, dc);
-}
-
-#define write_cmd(__par, __c) ssd1327_write_byte(__par, __c, 0);
-#define write_data(__par, __c) ssd1327_write_byte(__par, __c, 1);
 
 #define NUMARGS(...)  (sizeof((int[]){__VA_ARGS__}) / sizeof(int))
 static int ssd1327_write_reg(struct ssd1327_priv *priv, int len, ...)
@@ -234,8 +206,6 @@ static int ssd1327_reset(struct ssd1327_priv *priv)
 
 static int ssd1327_init_display(struct ssd1327_priv *priv)
 {
-    pr_debug("%s, initializing display ...\n", __func__);
-    
     write_reg(priv, 0xae);//--turn off oled panel
     
     write_reg(priv, 0x15);    //   set column address
@@ -291,17 +261,6 @@ static int ssd1327_init_display(struct ssd1327_priv *priv)
     
     write_reg(priv, 0xaf);
     
-    pr_debug("%s, Done.\n", __func__);
-    
-    return 0;
-}
-
-static int ssd1327_blank(struct ssd1327_priv *priv, bool on)
-{
-    if (on)
-        write_reg(priv, SSD1327_CMD_SET_DISPLAY_MODE_OFF);
-    else
-        write_reg(priv, SSD1327_CMD_SET_DISPLAY_MODE_ON);
     return 0;
 }
 
@@ -322,105 +281,30 @@ static int ssd1327_set_addr_win(struct ssd1327_priv *priv, int xs, int ys, int x
     return 0;
 }
 
-static int ssd1327_clear(struct ssd1327_priv *priv, int clear)
-{
-    int width = priv->display->xres;
-    int height = priv->display->yres;
-    int bpp = priv->display->bpp;
-    int i;
-    
-    ssd1327_set_addr_win(priv, 0, 0, width - 1, height - 1);
-    
-    dm_gpio_set_value(priv->gpio.dc, 1);
-    for (i = 0; i < width * height * bpp / BITS_PER_BYTE; i++)
-        ssd1327_spi_write(priv, &clear, 1);
-
-    return 0;
-}
-
-static int ssd1327_idle(struct ssd1327_priv *priv, bool on)
-{
-    return 0;
-}
-
-static int ssd1327_sleep(struct ssd1327_priv *priv, bool on)
-{
-    if (on)
-        write_reg(priv, SSD1327_CMD_SET_DISPLAY_OFF);
-    else
-        write_reg(priv, SSD1327_CMD_SET_DISPLAY_ON);
-        
-    pr_debug("%s, panel was %s", __func__, on ? "off" : "on");
-    return 0;
-}
-
-static int __maybe_unused ssd1327_show_img(struct ssd1327_priv *priv, const u8 *img)
-{
-    int i, j;
-    int width = priv->display->xres;
-    int height = priv->display->yres;
-    int byte;
-    ssd1327_set_addr_win(priv, 0, 0, 127, 127);
-    
-    dm_gpio_set_value(priv->gpio.dc, 1);
-    for (i = 0; i < height; i++) {
-        for (j = 0; j < width / 2; j++) {
-            /* 64 byte means one line length */
-            byte = img[j + i * 64];
-            ssd1327_spi_write(priv, &byte, 1);
-        }
-    }
-    return 0;
-}
-
-static int ssd1327_set_var(struct ssd1327_priv *priv)
-{
-    return 0;
-}
-
-static int ssd1327_set_gamma(struct ssd1327_priv *priv, u8 gamma)
+static int ssd1327_set_contrast(struct ssd1327_priv *priv, u8 contrast)
 {
     /* The chip has 256 contrast steps from 0x00 to 0xFF */
-    gamma &= 0xFF;
+    contrast &= 0xFF;
     
     write_reg(priv, SSD1327_CMD_SET_CONTRAST);
-    write_reg(priv, gamma);
+    write_reg(priv, contrast);
     
     return 0;
 }
-
-static const struct ssd1327_operations default_ssd1327_ops = {
-    .init_display = ssd1327_init_display,
-    .idle         = ssd1327_idle,
-    .reset        = ssd1327_reset,
-    .clear        = ssd1327_clear,
-    .blank        = ssd1327_blank,
-    .sleep        = ssd1327_sleep,
-    .set_var      = ssd1327_set_var,
-    .set_gamma    = ssd1327_set_gamma,
-    .set_addr_win = ssd1327_set_addr_win,
-};
 
 static int ssd1327_hw_init(struct ssd1327_priv *priv)
 {
     int ret;
-    pr_debug("%s\n", __func__);
-    
+
     ret = dm_spi_claim_bus(priv->dev);
     if (ret) {
         dev_err(priv->dev, "failed to claim spi bus : %d", ret);
         return ret;
     }
     
-    priv->tftops->reset(priv);
-    priv->tftops->init_display(priv);
-    // priv->tftops->set_var(priv);
-    // priv->tftops->clear(priv);
-
-    // priv->tftops->blank(priv, false);
-    // priv->tftops->blank(priv, true);
-    
-    // ssd1327_show_img(priv, gImage_1in5);
+    ssd1327_reset(priv);
+    ssd1327_init_display(priv);
+    ssd1327_set_contrast(priv, SSD1327_DEF_CONTRAST_LEVEL);
     
     dm_spi_release_bus(priv->dev);
     
@@ -431,10 +315,9 @@ static int ssd1327_of_config(struct ssd1327_priv *priv)
 {
     int ret;
     u32 width, height, bpp;
-    u32 fps, buswidth;
+    u32 buswidth, rotate;
     
-    pr_debug("%s\n", __func__);
-    ret = request_gpios(priv);
+    ret = ssd1327_request_gpios(priv);
     if (ret) {
         dev_err(priv->dev, "Request gpio failed!");
         return ret;
@@ -461,10 +344,10 @@ static int ssd1327_of_config(struct ssd1327_priv *priv)
     } else {
         priv->display->bpp = bpp;
     }
-    
-    /* FIXME: fps doesn't used anywhere */
-    fps = dev_read_u32_default(priv->dev, "fps", 0);
-    
+
+    /* FIXME: rotate wasn't used anywhere */
+    rotate = dev_read_u32_default(priv->dev, "rotate", 0);
+
     return 0;
 }
 
@@ -508,15 +391,13 @@ static int ssd1327_video_sync(struct udevice *vid)
     u8 *txbuf8 = priv->txbuf.buf;
     u16 *vmem16 = uc_priv->fb;
     
-    priv->tftops->idle(priv, false);
-    
     ret = dm_spi_claim_bus(priv->dev);
     if (ret) {
         dev_err(priv->dev, "failed to claim spi bus : %d", ret);
         return ret;
     }
     
-    priv->tftops->set_addr_win(priv, 0, 0,
+   ssd1327_set_addr_win(priv, 0, 0,
                                priv->display->xres - 1,
                                priv->display->yres - 1);
                                
@@ -530,16 +411,14 @@ static int ssd1327_video_sync(struct udevice *vid)
     remain = j;
     tx_array_size = priv->txbuf.len;
     while (remain) {
-        pr_debug("%s, remain : %d\n", __func__, remain);
         to_copy = min(tx_array_size, remain);
         write_buf_dc(priv, txbuf8, to_copy, 1);
+
         txbuf8 += to_copy;
         remain -= to_copy;
     }
     
     dm_spi_release_bus(priv->dev);
-    
-    priv->tftops->idle(priv, true);
     
     return 0;
 }
@@ -562,24 +441,23 @@ static int ssd1327_probe(struct udevice *dev)
     
     pr_debug("%s() plat: base 0x%lx, size 0x%x\n",
              __func__, plat->base, plat->size);
-             
+
+    priv->dev = dev;             
     priv->spi = slave;
     
-    priv->buf = (u8 *)malloc(PAGE_SIZE);
+    priv->buf = (u8 *)malloc(1 << 10);
     
     priv->txbuf.buf = (u8 *)malloc(PAGE_SIZE);
     priv->txbuf.len = PAGE_SIZE;
     
     priv->display = &default_ssd1327_display;
-    priv->tftops = &default_ssd1327_ops;
-    
-    priv->dev = dev;
+
     ssd1327_of_config(priv);
     
     uc_priv->bpix = VIDEO_BPP16;
     uc_priv->xsize = priv->display->xres;
     uc_priv->ysize = priv->display->yres;
-    uc_priv->rot = 0;
+    uc_priv->rot = priv->display->rotate;
     
     ssd1327_hw_init(priv);
     
@@ -591,7 +469,9 @@ static int ssd1327_bind(struct udevice *dev)
     struct video_uc_plat *plat = dev_get_uclass_plat(dev);
     struct ssd1327_priv *priv = dev_get_priv(dev);
     
-    plat->size = priv->display->xres * priv->display->yres * 16;
+    /* framebuffer size in bytes */
+    plat->size = priv->display->xres * priv->display->yres * \
+                priv->display->bpp / BITS_PER_BYTE;
     
     return 0;
 }
@@ -606,13 +486,13 @@ static const struct udevice_id ssd1327_ids[] = {
 };
 
 U_BOOT_DRIVER(ssd1327) = {
-    .name = DRV_NAME "_video",
-    .id = UCLASS_VIDEO,
-    .ops = &ssd1327_ops,
-    .bind = ssd1327_bind,
-    .of_match = ssd1327_ids,
+    .name       = DRV_NAME "_video",
+    .id         = UCLASS_VIDEO,
+    .ops        = &ssd1327_ops,
+    .bind       = ssd1327_bind,
+    .probe      = ssd1327_probe,
+    .of_match   = ssd1327_ids,
     .of_to_plat = ssd1327_ofdata_to_platdata,
-    .plat_auto = sizeof(struct video_uc_plat),
-    .probe = ssd1327_probe,
-    .priv_auto = sizeof(struct ssd1327_priv),
+    .plat_auto  = sizeof(struct video_uc_plat),
+    .priv_auto  = sizeof(struct ssd1327_priv),
 };
