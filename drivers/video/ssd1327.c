@@ -461,8 +461,7 @@ static int ssd1327_bind(struct udevice *dev)
     struct ssd1327_priv *priv = dev_get_priv(dev);
     
     /* framebuffer size in bytes */
-    plat->size = priv->display->xres * priv->display->yres * \
-                priv->display->bpp / BITS_PER_BYTE;
+    plat->size = priv->display->xres * priv->display->yres * 16;
     
     return 0;
 }
