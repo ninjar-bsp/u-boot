@@ -19,7 +19,11 @@
 #include "test.wav.h"
 
 #define PLL_AUDIO_CTRL_REG    (0x01c20000 + 0x008)
-#define PLL_AUDIO_EN    BIT(31)
+#define PLL_AUDIO_N_SHIFT   8
+#define PLL_AUDIO_N_MASK    GENMASK(14, 8)
+#define PLL_AUDIO_M_SHIFT   0
+#define PLL_AUDIO_M_MASK    GENMASK(4, 0)
+#define PLL_AUDIO_EN        BIT(31)
 
 /* Suniv I2S Ctrl register bits */
 #define I2S_CTRL_SDO_EN       BIT(8)
@@ -44,6 +48,9 @@
 #define I2S_MCLK_DIV_MASK   GENMASK(3, 0)
 #define I2S_MCLK_DIV_SHIFT  0
 
+#define suniv_i2s_reg_dump(__reg) \
+    printk(#__reg ": 0x%x\n", readl(__reg))
+
 struct suniv_i2s_regs {
     u32     ctrl;       /* DA_CTRL_REG   0x00 */
     u32     fat0;       /* DA_FAT_REG0   0x04 */
@@ -63,6 +70,28 @@ struct suniv_i2s_regs {
     u32     rxchmap;
 };
 
+struct wavfile_header {
+    char    riff_tag[4];
+    int     riff_length;
+    char    wave_tag[4];
+    char    fmt_tag[4];
+    int     fmt_length;
+    short   audio_format;
+    short   num_channels;
+    int     sample_rate;
+    int     byte_rate;
+    short   block_align;
+    short   bits_per_sample;
+    char    data_tag[4];
+    int     data_length;
+};
+
+/* Suniv Audio PLL clocks */
+enum {
+    SUNIV_AUDIO_PLL_24_571MHz,
+    SUNIV_AUDIO_PLL_22_579MHz,
+};
+
 /* Suniv I2S Sample Rates */
 enum {
     I2S_SR_16BIT,
@@ -71,6 +100,7 @@ enum {
     RESERVED,
 };
 #define I2S_SR_SHIFT    4
+
 enum {
     I2S_WSS_16BCLK,
     I2S_WSS_20BCLK,
@@ -79,23 +109,55 @@ enum {
 };
 #define I2S_WSS_SHIFT   2
 
+static int suniv_i2s_test(struct i2s_uc_priv *priv)
+{
+    struct suniv_i2s_regs *regs = (struct suniv_i2s_regs *)priv->base_address;
+    /*
+     * PD7  : MCLK
+     * PD8  : BCLK
+     * PD9  : LRCK
+     * PD10 : SDI
+     * PD11 : SDO0
+     */
+    
+    int i;
+    size_t to_send, tx_array_size = I2S_FIFO_DEPTH;
+    size_t remain = sizeof(test_wav);
+    u8 const *txbuf8 = test_wav;
+    
+    txbuf8 += 44;
+    remain -= 44;
+    
+    setbits_le32(&regs->ctrl, I2S_EN);
+    suniv_i2s_reg_dump(&regs->ctrl);
+    
+    printk("%s start.\n", __func__);
+    
+    while (remain) {
+        to_send = min(tx_array_size, remain);
+        
+        for (i = 0; i < to_send; i += 2)
+            writew(txbuf8[i + 1] << 8 | txbuf8[i], &regs->txfifo);
+        
+        /* wait for fifo spaces */
+        while (((readl(&regs->fsta) >> 16) & 0xff) < 0x3f);
+        txbuf8 += to_send;
+        remain -= to_send;
+    }
+    
+    /* waiting for fifo empty */
+    while (!(readl(&regs->ista) & BIT(4)));
+    setbits_le16(&regs->ista, BIT(4));
+    
+    printk("%s done.\n", __func__);
+    clrbits_le32(&regs->ctrl, I2S_EN);
+    return 0;
+}
+
 static int suniv_i2s_clock_setup(struct udevice *dev)
 {
     int ret;
     struct clk clk_bus, clk_mod;
-    
-    /* default PLL_AUDIO is 24.571MHz */
-    /* But we need 22.5792MHz in this demo */
-    /* N/M rate is 0.47 */
-#define PLL_AUDIO_N_SHIFT   8
-#define PLL_AUDIO_N_MASK    GENMASK(14, 8)
-#define PLL_AUDIO_M_SHIFT   0
-#define PLL_AUDIO_M_MASK    GENMASK(4, 0)
-    clrbits_le32(PLL_AUDIO_CTRL_REG, ~(PLL_AUDIO_N_MASK & PLL_AUDIO_M_MASK));
-    writel((0x7) << PLL_AUDIO_N_SHIFT |
-           (0x10) << PLL_AUDIO_M_SHIFT, PLL_AUDIO_CTRL_REG);
-           
-    setbits_le32(PLL_AUDIO_CTRL_REG, PLL_AUDIO_EN);
     
     ret = clk_get_by_index(dev, 0, &clk_bus);
     if (ret) {
@@ -122,6 +184,34 @@ static int suniv_i2s_clock_setup(struct udevice *dev)
     return 0;
 }
 
+static int suniv_i2s_set_audio_pll(struct i2s_uc_priv *priv, u8 clk)
+{
+    u8 factor_n, factor_m;
+    /* default PLL_AUDIO is 24.571MHz */
+    /* But we need 22.5792MHz in this demo */
+    /* N/M rate is 0.47 */
+    clrbits_le32(PLL_AUDIO_CTRL_REG, ~(PLL_AUDIO_N_MASK & PLL_AUDIO_M_MASK));
+
+    switch (clk) {
+    /* FIXME: support 24_571MHz Audio PLL clock */
+    case SUNIV_AUDIO_PLL_24_571MHz:
+        factor_n = 0x06;
+        factor_m = 0x0f;
+        pr_debug("SUNIV_AUDIO_PLL_24_571MHz Not supported yet!\n");
+        break;
+    case SUNIV_AUDIO_PLL_22_579MHz:
+        factor_n = 0x06;
+        factor_m = 0x0f;
+    }
+
+    writel((factor_n + 1) << PLL_AUDIO_N_SHIFT |
+           (factor_m + 1) << PLL_AUDIO_M_SHIFT,
+           PLL_AUDIO_CTRL_REG);
+    setbits_le32(PLL_AUDIO_CTRL_REG, PLL_AUDIO_EN);
+
+    return 0;
+}
+
 static int suniv_i2s_reset(struct udevice *dev)
 {
     struct reset_ctl *reset = devm_reset_control_get_by_index(dev, 0);
@@ -130,38 +220,60 @@ static int suniv_i2s_reset(struct udevice *dev)
     return 0;
 }
 
+/* FIXME: support other formats */
 static int suniv_i2s_init(struct i2s_uc_priv *priv)
 {
     struct suniv_i2s_regs *regs = (struct suniv_i2s_regs *)priv->base_address;
-    // u32 bps = priv->bitspersample;
+    u32 bps = priv->bitspersample;  /* sample rate */
     // u32 lrf = priv->rfs;
     // u32 chn = priv->channels;
     u32 mode = 0;
-    
-    setbits_le32(&regs->ctrl, I2S_EN);
-    
-    /* set DA to I2S mode */
+
+    suniv_i2s_set_audio_pll(priv, SUNIV_AUDIO_PLL_22_579MHz);
+
+    /* set Digital Audio Interface to I2S mode */
     clrbits_le32(&regs->ctrl, I2S_CTRL_PCM_SELECT);
+    suniv_i2s_reg_dump(&regs->ctrl);
     
-    switch (priv->bitspersample) {
+    switch (bps) {
     case 16:
         mode = I2S_SR_16BIT;
         break;
     case 20:
         mode = I2S_SR_20BIT;
+        pr_debug("I2S_SR_20BIT Not supported yet!\n");
         break;
     case 24:
         mode = I2S_SR_24BIT;
+        pr_debug("I2S_SR_24BIT Not supported yet!\n");
         break;
     default:
         log_err("Invalid sample size input %d\n", priv->bitspersample);
-        return -EINVAL;
     }
+    clrbits_le32(&regs->fat0, ~((I2S_WSS_16BCLK) << I2S_WSS_SHIFT));
     setbits_le32(&regs->fat0, (mode << I2S_SR_SHIFT));
+    suniv_i2s_reg_dump(&regs->fat0);
+
+    /* set mclk divider */
+    clrbits_le32(&regs->clkd, ~I2S_MCLK_DIV_MASK);
+    setbits_le32(&regs->clkd, (0x4) << I2S_MCLK_DIV_SHIFT);
+    setbits_le32(&regs->clkd, I2S_MCLKO_EN);
+    suniv_i2s_reg_dump(&regs->clkd);
+
+    /* clear fifo and fifo counter */
+    writel(0, &regs->txcnt);
+    writel(0, &regs->rxcnt);
+    setbits_le32(&regs->fctl, I2S_TXFIFO_FLUSH);
+    setbits_le32(&regs->fctl, I2S_RXFIFO_FLUSH);
+
+    /* enable fifo empty interrupt */
+    writel(0, &regs->intc);
+    setbits_le32(&regs->intc, BIT(4));
     
     return 0;
 }
 
+/* FIXME: add this routine from testing function */
 static int i2s_send_data(struct suniv_i2s_regs *regs, u32 *data, uint length)
 {
     return 0;
@@ -173,95 +285,6 @@ static int suniv_i2s_tx_data(struct udevice *dev, void *data, uint data_size)
     struct suniv_i2s_regs *regs = (struct suniv_i2s_regs *)priv->base_address;
     
     return i2s_send_data(regs, data, data_size / sizeof(u32));
-}
-
-#define suniv_i2s_reg_dump(__reg) \
-    printk(#__reg ": 0x%x\n", readl(__reg))
-static int suniv_i2s_test(struct i2s_uc_priv *priv)
-{
-    struct suniv_i2s_regs *regs = (struct suniv_i2s_regs *)priv->base_address;
-    u32 bps = priv->bitspersample;  /* sample rate */
-    // u32 lrf = priv->rfs;
-    // u32 chn = priv->channels;
-    u32 mode = 0;
-    
-    /* set DA to I2S mode */
-    clrbits_le32(&regs->ctrl, I2S_CTRL_PCM_SELECT);
-    suniv_i2s_reg_dump(&regs->ctrl);
-
-    switch (bps) {
-    case 16:
-        mode = I2S_SR_16BIT;
-        break;
-    case 20:
-        mode = I2S_SR_20BIT;
-        break;
-    case 24:
-        mode = I2S_SR_24BIT;
-        break;
-    default:
-        log_err("Invalid sample size input %d\n", priv->bitspersample);
-    }
-    clrbits_le32(&regs->fat0, ~((I2S_WSS_16BCLK) << I2S_WSS_SHIFT));
-    setbits_le32(&regs->fat0, (mode << I2S_SR_SHIFT));
-    suniv_i2s_reg_dump(&regs->fat0);
-    
-    clrbits_le32(&regs->clkd, ~I2S_MCLK_DIV_MASK);
-    setbits_le32(&regs->clkd, (0x4) << I2S_MCLK_DIV_SHIFT);
-    setbits_le32(&regs->clkd, I2S_MCLKO_EN);
-    suniv_i2s_reg_dump(&regs->clkd);
-
-    writel(0, &regs->txcnt);
-    writel(0, &regs->rxcnt);
-    setbits_le32(&regs->fctl, I2S_TXFIFO_FLUSH);
-    setbits_le32(&regs->fctl, I2S_RXFIFO_FLUSH);
-
-    /*
-     * PD7  : MCLK
-     * PD8  : BCLK
-     * PD9  : LRCK
-     * PD10 : SDI
-     * PD11 : SDO0
-     */
-
-    int i;
-    size_t to_send, tx_array_size = I2S_FIFO_DEPTH;
-    size_t remain = sizeof(test_wav);
-    u8 const *txbuf8 = test_wav;
-    
-    // txbuf8 += 46;
-    // remain -= 46;
-
-    setbits_le32(&regs->ctrl, I2S_EN);
-    suniv_i2s_reg_dump(&regs->ctrl);
-    writel(0, &regs->intc);
-    setbits_le32(&regs->intc, BIT(4));
-    printk("%s start.\n", __func__);
-    while (remain) {
-        to_send = min(tx_array_size, remain);
-
-        // suniv_i2s_reg_dump(&regs->fsta);
-        for (i = 0; i < to_send; i++) {
-            writeb(txbuf8[i], &regs->txfifo);
-        }
-
-        // printk("a 0x%02x\n", readl(&regs->ista));
-        /* wait for fifo empty */
-        while(!(readl(&regs->ista) & BIT(4)));
-        //     printk(".");
-        // printk("\n");
-        // printk("b 0x%02x\n", readl(&regs->ista));
-        setbits_le16(&regs->ista, BIT(4));
-
-        // suniv_i2s_reg_dump(&regs->fsta);
-
-        txbuf8 += to_send;
-        remain -= to_send;
-    }
-
-    printk("%s done.\n", __func__);
-    clrbits_le32(&regs->ctrl, I2S_EN);
-    return 0;
 }
 
 static int suniv_i2s_probe(struct udevice *dev)
@@ -287,10 +310,9 @@ static int suniv_i2s_probe(struct udevice *dev)
     
     suniv_i2s_clock_setup(dev);
     suniv_i2s_reset(dev);
+    suniv_i2s_init(priv);
     
     return suniv_i2s_test(priv);
-    
-    return suniv_i2s_init(priv);
 }
 
 static const struct i2s_ops suniv_i2s_ops = {
