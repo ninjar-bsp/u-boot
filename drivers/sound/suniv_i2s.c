@@ -49,7 +49,7 @@
 #define I2S_MCLK_DIV_SHIFT  0
 
 #define suniv_i2s_reg_dump(__reg) \
-    printk(#__reg ": 0x%x\n", readl(__reg))
+    pr_debug(#__reg ": 0x%x\n", readl(__reg))
 
 struct suniv_i2s_regs {
     u32     ctrl;       /* DA_CTRL_REG   0x00 */
@@ -131,7 +131,7 @@ static int suniv_i2s_test(struct i2s_uc_priv *priv)
     setbits_le32(&regs->ctrl, I2S_EN);
     suniv_i2s_reg_dump(&regs->ctrl);
     
-    printk("%s start.\n", __func__);
+    pr_debug("%s start.\n", __func__);
     
     while (remain) {
         to_send = min(tx_array_size, remain);
@@ -149,7 +149,7 @@ static int suniv_i2s_test(struct i2s_uc_priv *priv)
     while (!(readl(&regs->ista) & BIT(4)));
     setbits_le16(&regs->ista, BIT(4));
     
-    printk("%s done.\n", __func__);
+    pr_debug("%s done.\n", __func__);
     clrbits_le32(&regs->ctrl, I2S_EN);
     return 0;
 }
@@ -161,23 +161,23 @@ static int suniv_i2s_clock_setup(struct udevice *dev)
     
     ret = clk_get_by_index(dev, 0, &clk_bus);
     if (ret) {
-        printk("%s: Cannot find get BUS clk\n", __func__);
+        pr_debug("%s: Cannot find get BUS clk\n", __func__);
         return ret;
     }
     ret = clk_prepare_enable(&clk_bus);
     if (ret) {
-        printk("%s: Cannot find enable BUS clk\n", __func__);
+        pr_debug("%s: Cannot find enable BUS clk\n", __func__);
         return ret;
     }
     
     ret = clk_get_by_index(dev, 1, &clk_mod);
     if (ret) {
-        printk("%s: Cannot find get Module clk\n", __func__);
+        pr_debug("%s: Cannot find get Module clk\n", __func__);
         return ret;
     }
     ret = clk_prepare_enable(&clk_mod);
     if (ret) {
-        printk("%s: Cannot find enable Module clk\n", __func__);
+        pr_debug("%s: Cannot find enable Module clk\n", __func__);
         return ret;
     }
     
@@ -293,7 +293,7 @@ static int suniv_i2s_probe(struct udevice *dev)
     ulong base;
     
     base = dev_read_addr(dev);
-    printk("%s, base : 0x%lx\n", __func__, base);
+    pr_debug("%s, base : 0x%lx\n", __func__, base);
     if (base == FDT_ADDR_T_NONE) {
         log_debug("Missing i2s base\n");
         return -EINVAL;
