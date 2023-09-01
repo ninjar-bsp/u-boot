@@ -432,41 +432,28 @@ static int ssd1327_video_sync(struct udevice *vid)
     
     int i, j, ret;
     u8 p0, p1;
-    size_t remain;
-    size_t to_copy;
-    size_t tx_array_size;
     u8 *txbuf8 = priv->txbuf.buf;
     u16 *vmem16 = uc_priv->fb;
-    
-    ret = dm_spi_claim_bus(priv->dev);
+
+    ret = dm_spi_claim_bus(vid);
     if (ret) {
         dev_err(priv->dev, "failed to claim spi bus : %d", ret);
         return ret;
     }
-    
+
     priv->tftops->set_addr_win(priv, 0, 0,
                          priv->display->xres - 1,
                          priv->display->yres - 1);
-                         
+
     pr_debug("uc_priv->xsize : %d, uc_priv->ysize : %d\n", uc_priv->xsize, uc_priv->ysize);
     for (i = 0, j = 0; i < (uc_priv->xsize * uc_priv->ysize); i += 2, j++) {
         p0 = rgb565_to_4bit_grayscale(vmem16[i]);
         p1 = rgb565_to_4bit_grayscale(vmem16[i + 1]);
         txbuf8[j] = p0 << 4 | p1;
     }
-    
-    remain = j;
-    tx_array_size = priv->txbuf.len;
-    while (remain) {
-        pr_debug("%s, remain : %d\n", __func__, remain);
-        to_copy = min(tx_array_size, remain);
-        write_buf_dc(priv, txbuf8, to_copy, 1);
-        txbuf8 += to_copy;
-        remain -= to_copy;
-    }
-    
-    dm_spi_release_bus(priv->dev);
-    
+    write_buf_dc(priv, txbuf8, j, 1);
+
+    dm_spi_release_bus(vid);
     return 0;
 }
 
@@ -488,8 +475,8 @@ static int ssd1327_probe(struct udevice *dev)
     }
     
     priv->buf = (u8 *)malloc(PAGE_SIZE);
-    priv->txbuf.buf = (u8 *)malloc(PAGE_SIZE);
-    priv->txbuf.len = PAGE_SIZE;
+    priv->txbuf.buf = (u8 *)malloc(PAGE_SIZE << 1);
+    priv->txbuf.len = PAGE_SIZE << 1;
     
     priv->display = &default_ssd1327_display;
     priv->tftops = &default_ssd1327_ops;
@@ -521,7 +508,7 @@ static int ssd1327_bind(struct udevice *dev)
     struct video_uc_plat *plat = dev_get_uclass_plat(dev);
     struct ssd1327_priv *priv = dev_get_priv(dev);
     
-    plat->size = priv->display->xres * priv->display->yres * 16;
+    plat->size = priv->display->xres * priv->display->yres * 2;
     
     return 0;
 }
