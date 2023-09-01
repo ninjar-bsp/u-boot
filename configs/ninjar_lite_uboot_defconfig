@@ -11,15 +11,27 @@ CONFIG_SPL_SPI_SUNXI=y
 CONFIG_SPL_SPI_NAND_SUNXI=y
 CONFIG_LOCALVERSION="-ninjar-lite"
 CONFIG_USE_BOOTARGS=y
-CONFIG_BOOTARGS="console=tty0 console=ttyS0,115200 panic=5 rootwait mtdparts=spi0.0:512K@0x20000(u-boot),128K@0x100000(dtb),5M@0x120000(kernel),24M@0x620000(rootfs),-(reserve) rw ubi.mtd=3,2048 rootfstype=ubifs rootflags=sync root=ubi0:rootfs init=/linuxrc"
+CONFIG_BOOTARGS="console=tty0 console=ttyS0,115200 panic=5 rootwait mtdparts=spi0.0:512K@0x20000(u-boot),128K@0x100000(dtb),5M@0x120000(kernel),120M@0x620000(rootfs),-(reserved) rw ubi.mtd=3 rootfstype=ubifs root=ubi0:rootfs init=/linuxrc"
 CONFIG_BOOTCOMMAND=""
 CONFIG_DEFAULT_FDT_FILE="suniv-f1c100s-licheepi-nano.dts"
+# CONFIG_CONSOLE_MUX is not set
 CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR=0x50
 CONFIG_SYS_SPI_U_BOOT_OFFS=0x20000
 CONFIG_CMD_MTD=y
+# CONFIG_CMD_CLS is not set
 CONFIG_MTD=y
 CONFIG_DM_MTD=y
 CONFIG_MTD_SPI_NAND=y
 CONFIG_SPI_FLASH_WINBOND=y
 CONFIG_SPI_FLASH_XTX=y
+CONFIG_SOUND=y
+CONFIG_I2S=y
+CONFIG_I2S_SUNIV=y
 CONFIG_SPI=y
+CONFIG_VIDEO=y
+# CONFIG_BACKLIGHT is not set
+# CONFIG_VIDEO_BPP8 is not set
+# CONFIG_VIDEO_BPP32 is not set
+# CONFIG_PANEL is not set
+CONFIG_VIDEO_SSD1327=y
+CONFIG_BMP_16BPP=y
