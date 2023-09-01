@@ -10,6 +10,7 @@ CONFIG_SYS_CLK_FREQ=700000000
 CONFIG_SPL_SPI_SUNXI=y
 CONFIG_SPL_SPI_NAND_SUNXI=y
 CONFIG_LOCALVERSION="-ninjar-lite"
+CONFIG_BOOTDELAY=1
 CONFIG_USE_BOOTARGS=y
 CONFIG_BOOTARGS="console=tty0 console=ttyS0,115200 panic=5 rootwait mtdparts=spi0.0:512K@0x20000(u-boot),128K@0x100000(dtb),5M@0x120000(kernel),120M@0x620000(rootfs),-(reserved) rw ubi.mtd=3 rootfstype=ubifs root=ubi0:rootfs init=/linuxrc"
 CONFIG_BOOTCOMMAND=""
